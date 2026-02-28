@@ -1,6 +1,8 @@
 import os
 from circle.web3 import developer_controlled_wallets
 from dotenv import load_dotenv
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
 
 load_dotenv()
 
@@ -83,5 +85,6 @@ def send_payout(amount, destination_address):
 if __name__ == "__main__":
     # If your .env is empty, run this first to generate your wallet
     # create_initial_treasury() 
+    create_initial_treasury()
     
     print(f"💰 Current Treasury Balance: {get_treasury_balance()}")
