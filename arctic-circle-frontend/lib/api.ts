@@ -52,6 +52,11 @@ export async function getEmployees() {
   }))
 }
 
+export async function getTransaction(tx_id: string) {
+  const r = await fetch(`${BASE}/transactions/${tx_id}`, { cache: 'no-store' })
+  return r.json()
+}
+
 export async function triggerAgent() {
   const r = await fetch(`${BASE}/trigger`, { method: 'POST', cache: 'no-store' })
   return r.json()

@@ -4,10 +4,13 @@ import { useState, useRef, useEffect } from 'react'
 import { ShieldIcon, ChartBarsIcon, CoinIcon } from '@/components/pixel-icons'
 import { getTreasury, getSignals, getDecisions } from '@/lib/api'
 
+const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
 interface TreasuryData {
   usdc: number
   usyc: number
   total: number
+  total_payroll: number
   liquidity_ratio: number
   usyc_ratio: number
 }
@@ -26,18 +29,105 @@ interface Decision {
   execution: Record<string, unknown> | null
 }
 
+interface TxResult {
+  employee: string
+  tx_id: string
+  status: string
+  chain?: string
+  amount?: number
+}
+
+interface TxDetails {
+  state: string
+  tx_hash: string | null
+  blockchain: string
+  explorer_url: string | null
+}
+
 type FilterAction = 'ALL' | 'DEPOSIT' | 'WITHDRAW' | 'PAYROLL' | 'BLOCKED' | 'MONITOR'
 const FILTER_ACTIONS: FilterAction[] = ['ALL', 'DEPOSIT', 'WITHDRAW', 'PAYROLL', 'BLOCKED', 'MONITOR']
+
+function TxLookup({ tx }: { tx: TxResult }) {
+  const [details, setDetails] = useState<TxDetails | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(false)
+
+  async function lookup() {
+    setLoading(true)
+    setError(false)
+    try {
+      const r = await fetch(`${BASE}/transactions/${tx.tx_id}`)
+      const data = await r.json()
+      setDetails(data)
+    } catch {
+      setError(true)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="rounded-[3px] border border-border bg-background p-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="font-sans text-[12px] font-medium text-foreground">{tx.employee}</p>
+          <p className="font-mono text-[11px] text-muted-foreground">{tx.tx_id.slice(0, 16)}...</p>
+        </div>
+        <button
+          onClick={lookup}
+          disabled={loading}
+          className="rounded-[3px] border border-border px-3 py-1 font-sans text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {loading ? 'Looking up...' : details ? 'Refresh' : 'Check onchain'}
+        </button>
+      </div>
+      {error && (
+        <p className="mt-2 font-sans text-[11px] text-alert-red">Failed to fetch transaction details.</p>
+      )}
+      {details && (
+        <div className="mt-2 border-t border-border pt-2 flex flex-col gap-0.5">
+          <p className="font-sans text-[11px] text-muted-foreground">
+            State: <span className={`font-medium ${details.state === 'COMPLETE' ? 'text-usyc' : 'text-foreground'}`}>{details.state}</span>
+          </p>
+          <p className="font-sans text-[11px] text-muted-foreground">
+            Chain: <span className="text-foreground">{details.blockchain}</span>
+          </p>
+          {details.tx_hash && (
+            <p className="font-mono text-[11px] text-muted-foreground truncate">
+              Hash: {details.tx_hash}
+            </p>
+          )}
+          {details.explorer_url ? (
+            <a
+              href={details.explorer_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-block font-sans text-[11px] font-medium text-primary hover:underline"
+            >
+              View on explorer →
+            </a>
+          ) : (
+            <p className="font-sans text-[11px] text-muted-foreground">No explorer link yet — transaction may still be pending.</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function PolicyPanel({ treasury, signals }: { treasury: TreasuryData; signals: SignalData }) {
   type PolicyStatus = 'SAFE' | 'AT RISK' | 'BREACHED'
 
   function StatusBadge({ status }: { status: PolicyStatus }) {
-    const styles = { 'SAFE': 'bg-[rgba(52,211,153,0.15)] text-usyc', 'AT RISK': 'bg-[rgba(251,191,36,0.15)] text-amber', 'BREACHED': 'bg-[rgba(248,113,113,0.15)] text-alert-red' }
+    const styles = {
+      'SAFE': 'bg-[rgba(52,211,153,0.15)] text-usyc',
+      'AT RISK': 'bg-[rgba(251,191,36,0.15)] text-amber',
+      'BREACHED': 'bg-[rgba(248,113,113,0.15)] text-alert-red',
+    }
     return <span className={`inline-block rounded-[3px] px-2 py-0.5 font-sans text-[11px] font-medium ${styles[status]}`}>{status}</span>
   }
 
-  const TOTAL_PAYROLL = 9500
+  const TOTAL_PAYROLL = treasury.total_payroll ?? 0
   const liqPct = treasury.liquidity_ratio * 100
   const usycPct = treasury.usyc_ratio * 100
   const hasPayrollBuffer = treasury.usdc >= TOTAL_PAYROLL * 1.1
@@ -110,6 +200,9 @@ function DecisionCard({ decision, defaultExpanded }: { decision: Decision; defau
 
   const action = (decision.action || '').toUpperCase()
   const reasoningLines = decision.reasoning || []
+  const txResults: TxResult[] = Array.isArray(decision.execution)
+    ? (decision.execution as TxResult[]).filter(tx => tx.tx_id)
+    : []
 
   let borderColor = '#8B7FA8'
   let badgeBg = 'bg-[rgba(139,127,168,0.15)]'
@@ -121,7 +214,7 @@ function DecisionCard({ decision, defaultExpanded }: { decision: Decision; defau
     borderColor = '#F87171'; badgeBg = 'bg-[rgba(248,113,113,0.15)]'; badgeText = 'text-alert-red'
   }
 
-  const amount = decision.execution && typeof decision.execution === 'object' && 'amount' in decision.execution
+  const amount = decision.execution && !Array.isArray(decision.execution) && typeof decision.execution === 'object' && 'amount' in decision.execution
     ? `$${Number(decision.execution.amount).toLocaleString('en-US')}` : '-'
 
   return (
@@ -134,6 +227,7 @@ function DecisionCard({ decision, defaultExpanded }: { decision: Decision; defau
         <div className="flex items-center gap-3">
           <span className={`rounded-[3px] px-2 py-0.5 font-sans text-[12px] font-medium uppercase ${badgeBg} ${badgeText}`}>{action.replace(/_/g, ' ')}</span>
           {amount !== '-' && <span className="font-sans text-[12px] text-foreground">{amount}</span>}
+          {txResults.length > 0 && <span className="font-sans text-[12px] text-foreground">{txResults.length} payments</span>}
         </div>
         <div className="flex items-center gap-3">
           <span className="font-mono text-[13px] text-muted-foreground">{decision.timestamp}</span>
@@ -169,6 +263,8 @@ function DecisionCard({ decision, defaultExpanded }: { decision: Decision; defau
               <p className="font-sans text-[14px] text-foreground">{action.replace(/_/g, ' ')}</p>
             </div>
           </div>
+
+          {/* Agent reasoning */}
           <div>
             <p className="mb-2 font-sans text-[11px] font-medium uppercase tracking-wider text-muted-foreground">AGENT REASONING</p>
             <div className="flex flex-col gap-1">
@@ -182,6 +278,18 @@ function DecisionCard({ decision, defaultExpanded }: { decision: Decision; defau
               })}
             </div>
           </div>
+
+          {/* Onchain transactions — only shown for execute_payroll */}
+          {txResults.length > 0 && (
+            <div className="mt-4 border-t border-border pt-4" onClick={e => e.stopPropagation()}>
+              <p className="mb-2 font-sans text-[11px] font-medium uppercase tracking-wider text-muted-foreground">ONCHAIN TRANSACTIONS</p>
+              <div className="flex flex-col gap-2">
+                {txResults.map((tx, i) => (
+                  <TxLookup key={i} tx={tx} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -193,7 +301,7 @@ export default function DecisionLogPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [search, setSearch] = useState('')
-  const [treasury, setTreasury] = useState<TreasuryData>({ usdc: 0, usyc: 0, total: 0, liquidity_ratio: 0, usyc_ratio: 0 })
+  const [treasury, setTreasury] = useState<TreasuryData>({ usdc: 0, usyc: 0, total: 0, total_payroll: 0, liquidity_ratio: 0, usyc_ratio: 0 })
   const [signals, setSignals] = useState<SignalData>({ yield_rate: 0 })
   const [decisions, setDecisions] = useState<Decision[]>([])
   const [loading, setLoading] = useState(true)

@@ -5,6 +5,7 @@ from logger import get_recent_decisions, init_db
 from signals import get_usdc_yield
 from circle_client import get_balances
 from config import EMPLOYEES, TOTAL_PAYROLL
+import os
 import threading
 import time
 
@@ -61,8 +62,32 @@ def trigger():
     )
     return result
 
-@app.post("/bridge")
-def bridge(payload: dict):
+@app.get("/transactions/{tx_id}")
+def get_transaction(tx_id: str):
+    import requests as req
+    r = req.get(
+        f"https://api.circle.com/v1/w3s/transactions/{tx_id}",
+        headers={"Authorization": f"Bearer {os.getenv('CIRCLE_API_KEY')}"}
+    )
+    data = r.json()["data"]["transaction"]
+    blockchain = data.get("blockchain", "")
+    tx_hash = data.get("txHash")
+
+    explorer_url = None
+    if tx_hash:
+        if "ARC" in blockchain:
+            explorer_url = f"https://testnet.arcscan.app/tx/{tx_hash}"
+        elif "SEPOLIA" in blockchain:
+            explorer_url = f"https://sepolia.etherscan.io/tx/{tx_hash}"
+
+    return {
+        "tx_id": tx_id,
+        "state": data.get("state"),
+        "tx_hash": tx_hash,
+        "blockchain": blockchain,
+        "amounts": data.get("amounts"),
+        "explorer_url": explorer_url,
+    }
     import requests as req
     r = req.post("http://localhost:3001/bridge", json=payload, timeout=120)
     return r.json()
