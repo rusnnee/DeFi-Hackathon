@@ -6,6 +6,8 @@ import { usePathname } from 'next/navigation'
 import { LogoIcon, CoinIcon, RobotIcon, ChartBarsIcon, ScrollIcon, PersonIcon } from './pixel-icons'
 import { useArcticToast } from './arctic-toast'
 
+const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/dashboard', icon: 'chart' },
   { label: 'Decision Log', href: '/decision-log', icon: 'scroll' },
@@ -26,13 +28,11 @@ export function ArcticSidebar({ agentOnline }: { agentOnline: boolean }) {
 
   return (
     <aside className="fixed top-0 left-0 z-40 flex h-screen w-[200px] flex-col border-r border-border bg-header-bg">
-      {/* Logo */}
       <div className="flex items-center gap-2 px-5 pt-5 pb-6">
         <LogoIcon size={100} />
         <span className="font-sans text-[18px] font-bold text-foreground">ArcTic</span>
       </div>
 
-      {/* Nav links */}
       <nav className="flex flex-1 flex-col gap-1 px-3" aria-label="Main navigation">
         {NAV_ITEMS.map(item => {
           const isActive = pathname === item.href
@@ -53,7 +53,6 @@ export function ArcticSidebar({ agentOnline }: { agentOnline: boolean }) {
         })}
       </nav>
 
-      {/* Agent status at bottom */}
       <div className="border-t border-border px-4 py-4">
         <div className="flex items-center gap-2">
           <RobotIcon size={18} online={agentOnline} />
@@ -72,6 +71,7 @@ export function ArcticSidebar({ agentOnline }: { agentOnline: boolean }) {
 
 export function ArcticTopBar() {
   const [utcTime, setUtcTime] = useState('')
+  const [loading, setLoading] = useState(false)
   const { addToast } = useArcticToast()
 
   useEffect(() => {
@@ -84,8 +84,19 @@ export function ArcticTopBar() {
     return () => clearInterval(interval)
   }, [])
 
-  function handleTriggerAgent() {
-    addToast('Agent cycle triggered successfully', 'success')
+  async function handleTriggerAgent() {
+    setLoading(true)
+    try {
+      const r = await fetch(`${BASE}/trigger`, { method: 'POST' })
+      const result = await r.json()
+      const action = result.action?.replace(/_/g, ' ') ?? 'unknown'
+      const reasoning = result.reasoning?.[0] ?? ''
+      addToast(`Agent: ${action} — ${reasoning}`, 'success')
+    } catch (e) {
+      addToast('Failed to reach agent', 'error')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -93,9 +104,10 @@ export function ArcticTopBar() {
       <span className="font-mono text-[12px] text-muted-foreground">{utcTime}</span>
       <button
         onClick={handleTriggerAgent}
-        className="rounded-[3px] border border-border bg-card px-3 py-1 font-sans text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+        disabled={loading}
+        className="rounded-[3px] border border-border bg-card px-3 py-1 font-sans text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        Trigger Agent
+        {loading ? 'Running...' : 'Trigger Agent'}
       </button>
     </div>
   )
