@@ -1,90 +1,98 @@
-import os
-from circle.web3 import developer_controlled_wallets
+import os, requests, uuid, base64
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.backends import default_backend
 from dotenv import load_dotenv
-import ssl
-ssl._create_default_https_context = ssl._create_unverified_context
+from pathlib import Path
 
-load_dotenv()
+# --- 1. CONFIGURATION & SECRETS ---
+env_path = Path(__file__).resolve().parent.parent / '.env'
+load_dotenv(dotenv_path=env_path)
 
-# 1. Initialize the Base Configuration
-configuration = developer_controlled_wallets.Configuration()
-configuration.api_key = os.getenv("CIRCLE_API_KEY")
-configuration.entity_secret = os.getenv("ENTITY_SECRET")
+API_KEY = os.getenv("CIRCLE_API_KEY", "").strip()
+ENTITY_SECRET = os.getenv("ENTITY_SECRET", "").strip()
+# Using your verified Wallet ID
+WALLET_ID = os.getenv("WALLET_ID", "4637768c-9bf8-5cf8-aca3-da209370eb23").strip()
 
-# 2. Create the Client instance
-# Note: In the Python SDK, we often use specific API classes for different tasks
-api_client = developer_controlled_wallets.ApiClient(configuration)
-wallets_api = developer_controlled_wallets.WalletsApi(api_client)
-wallet_sets_api = developer_controlled_wallets.WalletSetsApi(api_client)
+BASE_URL = "https://api.circle.com/v1/w3s"
+DEVELOPER_BASE_URL = f"{BASE_URL}/developer"
 
-def get_treasury_balance():
-    """Checks USDC balance on Arc Testnet."""
-    wallet_id = os.getenv("WALLET_ID")
-    if not wallet_id:
-        return "No WALLET_ID found in .env. Run create_initial_treasury() first."
-    
+# Arc Testnet Native USDC Details
+USDC_CONTRACT_ADDRESS = "0x3600000000000000000000000000000000000000"
+USDC_DECIMALS = 6
+
+headers = {
+    "Authorization": f"Bearer {API_KEY}",
+    "Content-Type": "application/json",
+    "accept": "application/json"
+}
+
+# --- 2. AUTHENTICATION HELPERS ---
+def get_public_key():
+    res = requests.get(f"{BASE_URL}/config/entity/publicKey", headers=headers)
+    if res.status_code != 200:
+        raise Exception(f"Failed to fetch public key: {res.text}")
+    return res.json()['data']['publicKey']
+
+def generate_entity_secret_ciphertext():
+    public_key_pem = get_public_key()
+    public_key = serialization.load_pem_public_key(public_key_pem.encode(), backend=default_backend())
+    ciphertext = public_key.encrypt(
+        bytes.fromhex(ENTITY_SECRET),
+        padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
+    )
+    return base64.b64encode(ciphertext).decode()
+
+# --- 3. CORE TREASURY FUNCTIONS ---
+def check_treasury_balance():
+    """Live balance check for the demo dashboard."""
     try:
-        # Fetching balances specifically for your wallet ID
-        response = wallets_api.get_wallet_token_balance(id=wallet_id)
-        
-        for balance in response.data.token_balances:
-            if balance.token.symbol == "USDC":
-                return f"{balance.amount} USDC"
-        return "0 USDC (No balance found)"
-    except Exception as e:
-        return f"Error connecting to Circle: {e}"
-    
-def create_initial_treasury():
-    """Programmatically creates your first wallet on Arc."""
-    try:
-        # Step A: Create a Wallet Set
-        wallet_set_req = developer_controlled_wallets.CreateWalletSetRequest(name="ArcTic Treasury Set")
-        wallet_set_response = wallet_sets_api.create_wallet_set(wallet_set_req)
-        wallet_set_id = wallet_set_response.data.wallet_set.id
-        print(f"✅ Created Wallet Set: {wallet_set_id}")
+        res = requests.get(f"{BASE_URL}/wallets/{WALLET_ID}/balances", headers=headers)
+        if res.status_code == 200:
+            balances = res.json()['data']['tokenBalances']
+            for b in balances:
+                if b['token']['symbol'] == "USDC":
+                    return float(b['amount'])
+        return 0.0
+    except:
+        return 0.0
 
-        # Step B: Create the Wallet inside that set on Arc Testnet
-        # We specify 'ARC-TESTNET' and use 'SCA' (Smart Contract Account)
-        wallet_req = developer_controlled_wallets.CreateWalletsRequest(
-            blockchains=["ARC-TESTNET"],
-            count=1,
-            wallet_set_id=wallet_set_id,
-            account_type="SCA" 
-        )
-        wallet_response = wallets_api.create_wallets(wallet_req)
-        
-        new_wallet = wallet_response.data.wallets[0]
-        print(f"🚀 New Treasury Wallet Created!")
-        print(f"Address: {new_wallet.address}")
-        print(f"Wallet ID: {new_wallet.id}")
-        
-        return new_wallet.id
-    except Exception as e:
-        print(f"❌ Error creating wallet: {e}")
+def send_payout(amount: float, destination_address: str):
+    """
+    Executes a USDC transfer on Arc Testnet via manual contractExecution.
+    This bypasses standard transfer errors for SCA wallets.
+    """
+    print(f"💸 Initiating payout of {amount} USDC to {destination_address}...")
 
-def send_payout(amount, destination_address):
-    """Sends USDC to an employee on Arc Testnet."""
-    try:
-        # Create a transaction request
-        # USDC address on Arc is 0x3600000000000000000000000000000000000000
-        transfer_req = developer_controlled_wallets.CreateTransactionRequest(
-            amount=[str(amount)],
-            destination_address=destination_address,
-            token_address="0x3600000000000000000000000000000000000000",
-            blockchain="ARC-TESTNET",
-            wallet_id=os.getenv("WALLET_ID"),
-            fee={"type": "level", "config": {"feeLevel": "MEDIUM"}}
-        )
-        
-        response = wallets_api.create_transaction(transfer_req)
-        return response.data.id # Returns Transaction ID
-    except Exception as e:
-        print(f"Payout failed: {e}")
+    # Convert to 6-decimal integer
+    amount_in_units = int(amount * (10 ** USDC_DECIMALS))
+
+    # Manual ABI Encoding for transfer(address,uint256)
+    # Selector: 0xa9059cbb
+    address_padded = destination_address.lower().replace("0x", "").zfill(64)
+    amount_padded = hex(amount_in_units)[2:].zfill(64)
+    call_data = "0xa9059cbb" + address_padded + amount_padded
+
+    payload = {
+        "idempotencyKey": str(uuid.uuid4()),
+        "entitySecretCiphertext": generate_entity_secret_ciphertext(),
+        "walletId": WALLET_ID,
+        "contractAddress": USDC_CONTRACT_ADDRESS,
+        "callData": call_data,
+        "feeLevel": "MEDIUM",
+        "blockchain": "ARC-TESTNET"
+    }
+
+    res = requests.post(f"{DEVELOPER_BASE_URL}/transactions/contractExecution", json=payload, headers=headers)
+
+    if res.status_code == 201:
+        tx_id = res.json()['data']['id']
+        print(f"✅ SUCCESS! Transaction ID: {tx_id}")
+        return tx_id
+    else:
+        print(f"❌ Payout Failed [{res.status_code}]: {res.text}")
         return None
 
 if __name__ == "__main__":
-    # If your .env is empty, run this first to generate your wallet
-    # create_initial_treasury() 
-    create_initial_treasury()
-    
-    print(f"💰 Current Treasury Balance: {get_treasury_balance()}")
+    # Test block for direct terminal verification
+    print(f"💰 Treasury Balance: {check_treasury_balance()} USDC")

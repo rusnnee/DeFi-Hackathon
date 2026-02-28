@@ -1,6 +1,22 @@
-from config import MIN_LIQUIDITY_RATIO, MAX_USYC_RATIO, TOTAL_PAYROLL
+import os
+import importlib.util
+
+# This part tells Python: "Look in my current folder for config.py"
+backend_dir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.path.join(backend_dir, "config.py")
+
+spec = importlib.util.spec_from_file_location("local_config", config_path)
+local_config = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(local_config)
+
+# Now we pull the variables from that local file
+MIN_LIQUIDITY_RATIO = local_config.MIN_LIQUIDITY_RATIO
+MAX_USYC_RATIO = local_config.MAX_USYC_RATIO
+TOTAL_PAYROLL = local_config.TOTAL_PAYROLL
 
 def check_policies(action, usdc_balance, usyc_balance, amount=0):
+    # ... (rest of your check_policies function is perfect!)
+
     total = usdc_balance + usyc_balance
     violations = []
 
