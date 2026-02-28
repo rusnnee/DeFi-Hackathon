@@ -9,7 +9,13 @@ import threading
 import time
 
 app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 init_db()
 
@@ -20,7 +26,7 @@ def agent_loop():
             usdc_balance=balances["usdc_balance"],
             usyc_balance=balances["usyc_balance"]
         )
-        time.sleep(60)
+        time.sleep(300)  # 5 minutes
 
 threading.Thread(target=agent_loop, daemon=True).start()
 
@@ -53,3 +59,20 @@ def trigger():
         usyc_balance=balances["usyc_balance"]
     )
     return result
+
+from pydantic import BaseModel
+
+class BridgeRequest(BaseModel):
+    destinationAddress: str
+    destinationChain: str
+    amount: str
+
+@app.post("/bridge")
+def bridge(payload: BridgeRequest):
+    import requests as req
+    r = req.post(
+        "http://localhost:3001/bridge",
+        json=payload.model_dump(),
+        timeout=120
+    )
+    return r.json()
