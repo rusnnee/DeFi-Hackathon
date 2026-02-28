@@ -4,7 +4,7 @@ from decisions import evaluate
 from logger import get_recent_decisions, init_db
 from signals import get_usdc_yield
 from circle_client import get_balances
-from config import EMPLOYEES
+from config import EMPLOYEES, TOTAL_PAYROLL
 import threading
 import time
 
@@ -26,7 +26,7 @@ def agent_loop():
             usdc_balance=balances["usdc_balance"],
             usyc_balance=balances["usyc_balance"]
         )
-        time.sleep(300)  # 5 minutes
+        time.sleep(300)
 
 threading.Thread(target=agent_loop, daemon=True).start()
 
@@ -36,7 +36,8 @@ def treasury():
     return {
         "usdc_balance": balances["usdc_balance"],
         "usyc_balance": balances["usyc_balance"],
-        "total": balances["usdc_balance"] + balances["usyc_balance"]
+        "total": balances["usdc_balance"] + balances["usyc_balance"],
+        "total_payroll": TOTAL_PAYROLL
     }
 
 @app.get("/signals")
@@ -60,19 +61,8 @@ def trigger():
     )
     return result
 
-from pydantic import BaseModel
-
-class BridgeRequest(BaseModel):
-    destinationAddress: str
-    destinationChain: str
-    amount: str
-
 @app.post("/bridge")
-def bridge(payload: BridgeRequest):
+def bridge(payload: dict):
     import requests as req
-    r = req.post(
-        "http://localhost:3001/bridge",
-        json=payload.model_dump(),
-        timeout=120
-    )
+    r = req.post("http://localhost:3001/bridge", json=payload, timeout=120)
     return r.json()

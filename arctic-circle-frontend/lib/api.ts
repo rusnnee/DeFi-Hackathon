@@ -3,12 +3,11 @@ const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 export async function getTreasury() {
   const r = await fetch(`${BASE}/treasury`, { cache: 'no-store' })
   const data = await r.json()
-  // Backend returns { usdc_balance, usyc_balance, total }
-  // Frontend expects { usdc, usyc, total, liquidity_ratio, usyc_ratio }
   return {
     usdc: data.usdc_balance,
     usyc: data.usyc_balance,
     total: data.total,
+    total_payroll: data.total_payroll ?? 0,
     liquidity_ratio: data.total > 0 ? data.usdc_balance / data.total : 0,
     usyc_ratio: data.total > 0 ? data.usyc_balance / data.total : 0,
   }
@@ -16,13 +15,12 @@ export async function getTreasury() {
 
 export async function getSignals() {
   const r = await fetch(`${BASE}/signals`, { cache: 'no-store' })
-  return r.json() // returns { yield_rate }
+  return r.json()
 }
 
 export async function getDecisions() {
   const r = await fetch(`${BASE}/decisions`, { cache: 'no-store' })
   const data: RawDecision[] = await r.json()
-  // Map backend fields to frontend Decision interface
   return data.map(d => ({
     id: d.id,
     timestamp: d.timestamp,
@@ -42,7 +40,6 @@ export async function getDecisions() {
 export async function getEmployees() {
   const r = await fetch(`${BASE}/employees`, { cache: 'no-store' })
   const data = await r.json()
-  // Map backend fields to frontend Employee interface
   return data.map((e: BackendEmployee) => ({
     id: e.id,
     name: e.name,
@@ -60,7 +57,6 @@ export async function triggerAgent() {
   return r.json()
 }
 
-// Raw types from backend
 interface RawDecision {
   id: number
   timestamp: string

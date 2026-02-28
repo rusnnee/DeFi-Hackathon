@@ -33,6 +33,7 @@ interface TreasuryData {
   usdc: number
   usyc: number
   total: number
+  total_payroll: number
   liquidity_ratio: number
   usyc_ratio: number
 }
@@ -112,7 +113,7 @@ function TreasuryOverview({ treasury }: { treasury: TreasuryData }) {
                   content={({ active, payload }) => {
                     if (active && payload && payload.length) {
                       const d = payload[0].payload
-                      const pct = ((d.value / treasury.total) * 100).toFixed(1)
+                      const pct = treasury.total > 0 ? ((d.value / treasury.total) * 100).toFixed(1) : '0'
                       return (
                         <div className="rounded-[4px] border border-border bg-card px-3 py-2 shadow-lg">
                           <p className="font-sans text-[12px] font-medium text-foreground">{d.name}</p>
@@ -128,7 +129,7 @@ function TreasuryOverview({ treasury }: { treasury: TreasuryData }) {
           </div>
           <div className="flex flex-col gap-2">
             {pieData.map((entry, i) => {
-              const pct = ((entry.value / treasury.total) * 100).toFixed(1)
+              const pct = treasury.total > 0 ? ((entry.value / treasury.total) * 100).toFixed(1) : '0'
               return (
                 <div key={i} className="flex items-center gap-2">
                   <div className="h-2.5 w-2.5 flex-shrink-0 rounded-[1px]" style={{ background: entry.color }} />
@@ -148,6 +149,8 @@ function TreasuryOverview({ treasury }: { treasury: TreasuryData }) {
 
 function PaydayCard({ treasury }: { treasury: TreasuryData }) {
   const [daysRemaining, setDaysRemaining] = useState(0)
+  const requiredAmount = (treasury.total_payroll ?? 0) * 1.1
+  const fundsSufficient = treasury.usdc >= requiredAmount
 
   useEffect(() => {
     const now = new Date()
@@ -156,8 +159,6 @@ function PaydayCard({ treasury }: { treasury: TreasuryData }) {
     setDaysRemaining(Math.ceil((payday.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
   }, [])
 
-  const requiredAmount = 4 * 1.1  // was 9500 * 1.1
-  const fundsSufficient = treasury.usdc >= requiredAmount
   const cardBorder = !fundsSufficient ? 'border-alert-red' : 'border-border'
   const cardBg = !fundsSufficient ? 'bg-[rgba(248,113,113,0.08)]' : 'bg-card'
 
@@ -352,8 +353,7 @@ function DecisionLogSummary({ decisions }: { decisions: Decision[] }) {
               {decisions.map(d => {
                 const style = getActionStyle(d.action)
                 const amount = d.execution && typeof d.execution === 'object' && 'amount' in d.execution
-                  ? `$${Number(d.execution.amount).toLocaleString('en-US')}`
-                  : null
+                  ? `$${Number(d.execution.amount).toLocaleString('en-US')}` : null
                 return (
                   <div key={d.id} className="rounded-[3px] border border-border bg-card px-3 py-2" style={{ borderLeftWidth: '3px', borderLeftColor: style.border }}>
                     <div className="flex items-center justify-between">
@@ -376,7 +376,7 @@ function DecisionLogSummary({ decisions }: { decisions: Decision[] }) {
 }
 
 export default function DashboardPage() {
-  const [treasury, setTreasury] = useState<TreasuryData>({ usdc: 0, usyc: 0, total: 0, liquidity_ratio: 0, usyc_ratio: 0 })
+  const [treasury, setTreasury] = useState<TreasuryData>({ usdc: 0, usyc: 0, total: 0, total_payroll: 0, liquidity_ratio: 0, usyc_ratio: 0 })
   const [signals, setSignals] = useState<SignalData>({ yield_rate: 0 })
   const [decisions, setDecisions] = useState<Decision[]>([])
   const [loading, setLoading] = useState(true)
@@ -395,7 +395,7 @@ export default function DashboardPage() {
       }
     }
     load()
-    const interval = setInterval(load, 30000) // refresh every 30s
+    const interval = setInterval(load, 30000)
     return () => clearInterval(interval)
   }, [])
 
