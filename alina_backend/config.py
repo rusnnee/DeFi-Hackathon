@@ -1,5 +1,5 @@
 EMPLOYEES = [
-    {"id": "EMP001", "name": "Alice", "wallet_id": "c31bf9de-643d-5cd6-9f14-a745eafbe3cc", "wallet_address": "0x1b24b82dc40fbe6f9776919f9fc4369332b3119c", "salary": 0.2, "chain": "ARC-TESTNET"},
+    {"id": "EMP001", "name": "Alice", "wallet_id": "c31bf9de-643d-5cd6-9f14-a745eafbe3cc", "wallet_address": "0x192a98b03fd388570d18e4f2bfa44a172e79db55", "salary": 0.2, "chain": "ARC-TESTNET"},
     {"id": "EMP002", "name": "Bob",   "wallet_id": "8b74b058-e619-5f2c-972c-1ee8d15f8497", "wallet_address": "0x3f61fd9149191043dae254a3d067df1bd784a0ad", "salary": 0.1, "chain": "ARC-TESTNET"},
 ]
 
